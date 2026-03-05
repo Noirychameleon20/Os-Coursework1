@@ -2,10 +2,9 @@
  *  FILE 2 — THE SOLUTIONS (Semaphores + Mutexes)
  *  Online Examination System — ST5068CEM
  *
- *  Solves all 3 problems from problem.c:
+ *  Solves all 2 problems from problem.c:
  *  1. Producer-Consumer  → Semaphores (empty + full + mutex)
  *  2. Reader-Writer      → Mutex + reader count
- *  3. Dining Philosophers→ Mutex + atomic state check
  *
  *  Compile & Run
  *  Linux  : gcc -o solutions solutions.c -lpthread && ./solutions
@@ -279,121 +278,6 @@ static void run_rw_solution(void)
 }
 
 
-/* ══════════════════════════════════════════════════════════
- *  SOLUTION 3 — DINING PHILOSOPHERS with MUTEX + STATE
- *
- *  dp_mutex  : one philosopher changes state at a time
- *  dp_test() : picks up BOTH pens atomically — or waits
- *              breaks circular wait → no deadlock possible
- * ══════════════════════════════════════════════════════════ */
-#define N_PHIL 5
-typedef enum { THINKING, HUNGRY, EATING } State;
-
-static State dp_state[N_PHIL];
-static int   dp_marked[N_PHIL];
-static MUTEX_T dp_mutex;
-
-#ifdef _WIN32
-  static HANDLE dp_event[N_PHIL];
-#else
-  static pthread_cond_t dp_cond[N_PHIL];
-#endif
-
-static const char *phil_names[N_PHIL] = {
-    "Dr. Adams ", "Dr. Brown ", "Dr. Carter",
-    "Dr. Diaz  ", "Dr. Evans "
-};
-#define L(i) (((i)+N_PHIL-1)%N_PHIL)
-#define R(i) (((i)+1)%N_PHIL)
-
-static void dp_test(int i)
-{
-    if (dp_state[i]==HUNGRY && dp_state[L(i)]!=EATING && dp_state[R(i)]!=EATING) {
-        dp_state[i] = EATING;
-        printf("  [DP ✔]  %s  picks up BOTH pens → MARKING\n", phil_names[i]);
-#ifdef _WIN32
-        SetEvent(dp_event[i]);
-#else
-        pthread_cond_signal(&dp_cond[i]);
-#endif
-    }
-}
-
-static void dp_pickup(int i)
-{
-    mutex_lock(dp_mutex);
-    dp_state[i] = HUNGRY;
-    dp_test(i);
-#ifdef _WIN32
-    mutex_unlock(dp_mutex);
-    if (dp_state[i]!=EATING) WaitForSingleObject(dp_event[i],INFINITE);
-#else
-    while (dp_state[i]!=EATING) pthread_cond_wait(&dp_cond[i], &dp_mutex);
-    mutex_unlock(dp_mutex);
-#endif
-}
-
-static void dp_putdown(int i)
-{
-    mutex_lock(dp_mutex);
-    dp_state[i] = THINKING;
-    dp_marked[i]++;
-    dp_test(L(i));
-    dp_test(R(i));
-    mutex_unlock(dp_mutex);
-}
-
-THREAD_RET phil_sol(void *arg)
-{
-    int i = *(int *)arg;
-    for (int r=0; r<3; r++) {
-        sleep_ms(80 + i*40);
-        dp_pickup(i);
-        sleep_ms(100);
-        dp_putdown(i);
-    }
-#ifdef _WIN32
-    return 0;
-#else
-    return NULL;
-#endif
-}
-
-static void run_dp_solution(void)
-{
-    printf("\n============================================================\n");
-    printf("  SOLUTION 3: Dining Philosophers (Mutex + State Check)\n");
-    printf("  ExamSystem — 5 Markers, 5 Shared Pens, 3 rounds each\n");
-    printf("  Mutex: dp_mutex — atomic pickup of BOTH pens or none\n");
-    printf("============================================================\n\n");
-
-    for (int i=0;i<N_PHIL;i++) { dp_state[i]=THINKING; dp_marked[i]=0; }
-    mutex_init(dp_mutex);
-#ifdef _WIN32
-    for (int i=0;i<N_PHIL;i++) dp_event[i]=CreateEvent(NULL,FALSE,FALSE,NULL);
-#else
-    for (int i=0;i<N_PHIL;i++) pthread_cond_init(&dp_cond[i],NULL);
-#endif
-
-    THREAD_T threads[N_PHIL];
-    int ids[N_PHIL]={0,1,2,3,4};
-    for (int i=0;i<N_PHIL;i++) thread_create(threads[i], phil_sol, &ids[i]);
-    for (int i=0;i<N_PHIL;i++) thread_join(threads[i]);
-
-    printf("\n  | %-28s| %-10s|\n", "Marker", "Scripts Marked");
-    printf("  |-----------------------------|------------|\n");
-    int total=0;
-    for (int i=0;i<N_PHIL;i++) {
-        printf("  | %-28s| %-10d|\n", phil_names[i], dp_marked[i]);
-        total += dp_marked[i];
-    }
-    printf("  |-----------------------------|------------|\n");
-    printf("  | %-28s| %-10d|\n", "Total scripts marked", total);
-    printf("\n  ✔ No deadlock. All %d markers completed all 3 rounds.\n", N_PHIL);
-    printf("  ✔ Circular wait broken — pickup is atomic (both or none).\n");
-}
-
-
 /* ── Main ───────────────────────────────────────────────── */
 int main(void)
 {
@@ -401,18 +285,16 @@ int main(void)
     printf("============================================================\n");
     printf("  FILE 2: Synchronization SOLUTIONS\n");
     printf("  Online Examination System — ST5068CEM\n");
-    printf("  Semaphores (P1) | Mutex (P2) | Mutex + State (P3)\n");
+    printf("  Semaphores (P1) | Mutex (P2)\n");
     printf("============================================================\n");
 
     run_pc_solution();
     run_rw_solution();
-    run_dp_solution();
 
     printf("\n============================================================\n");
     printf("  Summary\n");
     printf("  S1 Producer-Consumer : 3 Semaphores — no race condition\n");
     printf("  S2 Reader-Writer     : 2 Mutexes    — no corrupt reads\n");
-    printf("  S3 Dining Philosophers: Mutex+State — no deadlock\n");
     printf("============================================================\n\n");
     return 0;
 }
